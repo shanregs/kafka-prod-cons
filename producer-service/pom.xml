@@ -13,19 +13,6 @@
     <version>0.0.1-SNAPSHOT</version>
     <name>producer-service</name>
     <description>producer-service</description>
-    <url/>
-    <licenses>
-        <license/>
-    </licenses>
-    <developers>
-        <developer/>
-    </developers>
-    <scm>
-        <connection/>
-        <developerConnection/>
-        <tag/>
-        <url/>
-    </scm>
 
     <properties>
         <java.version>25</java.version>
@@ -38,6 +25,21 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webmvc</artifactId>
+        </dependency>
+        <!-- JSON support (Jackson) is a separate starter in this Spring Boot version and is not
+             pulled in transitively by webmvc/kafka; needed for both the REST responses and the
+             Kafka message envelope's JSON (de)serialization. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jackson</artifactId>
+        </dependency>
+        <!-- spring-boot-starter-jackson pulls in Jackson 3.x under the new tools.jackson.core
+             groupId; spring-kafka's JsonSerializer/JsonDeserializer are still written against
+             classic Jackson 2.x (com.fasterxml.jackson.databind), so that's added explicitly
+             here, version-managed by the parent BOM. -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>

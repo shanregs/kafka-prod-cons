@@ -78,31 +78,36 @@ Principle IV).
 
 **CRITICAL**: No user story task may begin until this phase is complete.
 
-- [ ] T008 [P] Create `ProducerServiceApplication` main class in
+- [X] T008 [P] Create `ProducerServiceApplication` main class in
   `producer-service/src/main/java/com/shan/kafka/producerservice/ProducerServiceApplication.java`
-- [ ] T009 [P] Create `ConsumerServiceApplication` main class in
+- [X] T009 [P] Create `ConsumerServiceApplication` main class in
   `consumer-service/src/main/java/com/shan/kafka/consumerservice/ConsumerServiceApplication.java`
-- [ ] T010 [P] Implement the `KafkaMessageEnvelope`/`MessagePayload` types in
+- [X] T010 [P] Implement the `KafkaMessageEnvelope`/`MessagePayload` types in
   `producer-service/src/main/java/com/shan/kafka/producerservice/kafka/KafkaMessageEnvelope.java`,
   matching `contracts/kafka-message-contract.md` exactly: `messageId` (string, required),
   `producedAt` (ISO-8601 timestamp, always UTC, required), `producerId` (string, required),
   `sequenceNumber` (integer, ≥ 1, required), `payload.content` (string, required, non-empty)
-- [ ] T011 [P] Implement the mirrored `KafkaMessageEnvelope`/`MessagePayload` deserialization types
+- [X] T011 [P] Implement the mirrored `KafkaMessageEnvelope`/`MessagePayload` deserialization types
   in
   `consumer-service/src/main/java/com/shan/kafka/consumerservice/kafka/KafkaMessageEnvelope.java`,
   matching the same contract fields and constraints as T010
-- [ ] T012 Configure `producer-service`'s Kafka producer (JSON value serializer; topic and
+- [X] T012 Configure `producer-service`'s Kafka producer (JSON value serializer; topic and
   bootstrap servers bound from `application.yaml`, never hardcoded — FR-011, FR-018) as a regular,
   constructor-injected Spring bean, in
   `producer-service/src/main/java/com/shan/kafka/producerservice/kafka/ProducerKafkaConfig.java`
   (depends on: T005, T010) — kept as an ordinary injectable bean (no extra infrastructure) so
-  T046's test can substitute a fault-injecting test double for it
-- [ ] T013 [P] Configure `consumer-service`'s Kafka consumer (JSON value deserializer; topic,
+  T046's test can substitute a fault-injecting test double for it. Also added
+  `spring-boot-starter-jackson` and classic `com.fasterxml.jackson.core:jackson-databind` to
+  `pom.xml` (discovered during implementation — see note below)
+- [X] T013 [P] Configure `consumer-service`'s Kafka consumer (JSON value deserializer; topic,
   bootstrap servers, and consumer group bound from `application.yaml`; manual acknowledgment mode
   per data-model.md's Acknowledgement rule) as a regular, constructor-injected Spring bean, in
   `consumer-service/src/main/java/com/shan/kafka/consumerservice/kafka/ConsumerKafkaConfig.java`
   (depends on: T006, T011) — kept as an ordinary injectable bean so T047's test can substitute a
-  fault-injecting test double for it
+  fault-injecting test double for it. Uses `ErrorHandlingDeserializer` around the value
+  deserializer so T039's container-level error handler has a seam to classify a malformed record
+  as `INVALID_DESERIALIZATION` instead of it killing the poll loop. Same Jackson dependency
+  addition as T012 applies here too.
 
 **Checkpoint**: Foundation ready — user story work can begin.
 
