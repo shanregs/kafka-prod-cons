@@ -9,10 +9,23 @@
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
     <groupId>com.shan.kafka</groupId>
-    <artifactId>kafka-prod-cons</artifactId>
+    <artifactId>consumer-service</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>kafka-prod-cons</name>
-    <description>kafka-prod-cons</description>
+    <name>consumer-service</name>
+    <description>consumer-service</description>
+    <url/>
+    <licenses>
+        <license/>
+    </licenses>
+    <developers>
+        <developer/>
+    </developers>
+    <scm>
+        <connection/>
+        <developerConnection/>
+        <tag/>
+        <url/>
+    </scm>
 
     <properties>
         <java.version>25</java.version>
@@ -22,9 +35,15 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-kafka</artifactId>
         </dependency>
+        <!-- Needed for consumer-service's own GET /status REST endpoint
+             (contracts/consumer-status-api.md) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webmvc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
 
         <dependency>

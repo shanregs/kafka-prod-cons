@@ -1,0 +1,14 @@
+spring:
+  application:
+    name: producer-service
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+
+app:
+  kafka:
+    topic: ${KAFKA_TOPIC:kafka-prod-cons-messages}
+  producer:
+    # Intentionally no numeric default: unset/blank means "no rate configured",
+    # a runtime value that /startmsg validation (T024) rejects with 409 rather
+    # than the application failing to start.
+    rate-per-second: ${PRODUCER_RATE_PER_SECOND:}
