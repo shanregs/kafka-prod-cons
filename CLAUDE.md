@@ -8,7 +8,7 @@ This is a Spring Boot + Apache Kafka learning project, currently at the Spring I
 
 - Group/Artifact: `com.shan.kafka:kafka-prod-cons`
 - Spring Boot: `4.1.1` (parent POM)
-- Java: `21`
+- Java: `25`
 - Dependencies: `spring-boot-starter-kafka`, `spring-boot-starter-webmvc` (+ their `-test` counterparts)
 
 ## Commands
