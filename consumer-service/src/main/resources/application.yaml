@@ -2,11 +2,12 @@ spring:
   application:
     name: consumer-service
   kafka:
-    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092,localhost:9093,localhost:9094}
     consumer:
       group-id: ${KAFKA_CONSUMER_GROUP:kafka-prod-cons-consumer-group}
-
 app:
   kafka:
     # Must match producer-service's app.kafka.topic (FR-011).
     topic: ${KAFKA_TOPIC:kafka-prod-cons-messages}
+server:
+  port: 8090
