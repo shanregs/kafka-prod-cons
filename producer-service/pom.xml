@@ -33,14 +33,6 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-jackson</artifactId>
         </dependency>
-        <!-- spring-boot-starter-jackson pulls in Jackson 3.x under the new tools.jackson.core
-             groupId; spring-kafka's JsonSerializer/JsonDeserializer are still written against
-             classic Jackson 2.x (com.fasterxml.jackson.databind), so that's added explicitly
-             here, version-managed by the parent BOM. -->
-        <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
@@ -54,6 +46,13 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-webmvc-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- TestRestTemplate's auto-configuration needs RestTemplateBuilder, which is its own
+             module in this Spring Boot version, not pulled in by webmvc-test. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-restclient</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>
