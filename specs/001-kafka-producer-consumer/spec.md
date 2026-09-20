@@ -17,6 +17,8 @@
 - Q: Is the 10%-tolerance-over-a-60-second-window rate-accuracy target (SC-004/FR-016) acceptable as the formal acceptance criterion? → A: Confirmed as-is — within 10% of target, measured over a 60-second window.
 - Q: What order of magnitude should the system be designed to handle for the configurable production rate? → A: 10 messages/second (target sustained rate for this feature's scope).
 - Q: Should `consumer-service` ever run as multiple concurrent instances sharing one consumer group (for parallel consumption), or is a single running instance the intended scope for this feature? → A: Single consumer-service instance only — multi-instance scaling is out of scope.
+- Q: Should the spec formally acknowledge that a producer send acknowledgment timeout may rarely produce a duplicate `sequenceNumber` (under a distinct `messageId`), or keep an absolute "no duplicates" guarantee and treat any duplicate as a defect? → A: Document it as an accepted rare edge case — sequence numbers are contiguous per run in the common case, but an ack timeout may rarely produce a duplicate number under a distinct `messageId`; not a defect, and not to be closed via retries, DLQ, or idempotent-producer machinery (FR-026).
+- Q: FR-025 requires graceful shutdown "within a reasonable shutdown window" — should that be pinned to a concrete time bound? → A: Yes — 10 seconds.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -193,9 +195,11 @@ inspecting internal code or state.
 - **FR-009**: The message production rate MUST be configurable as a number of messages per second
   without requiring a code change or rebuild to adjust it.
 - **FR-010**: Each produced message MUST include, at minimum: a unique message identifier, a
-  production timestamp, a producer/service identifier, a monotonically increasing sequence number,
-  and an application payload that itself contains a required, non-empty `content` field
-  representing the arbitrary application data being transmitted.
+  production timestamp, a producer/service identifier, a sequence number that is contiguous and
+  strictly increasing within a run in the common case (see Assumptions for the rare accepted
+  exception under a send-acknowledgment timeout), and an application payload that itself contains a
+  required, non-empty `content` field representing the arbitrary application data being
+  transmitted.
 - **FR-011**: The Kafka topic name used for production and consumption MUST be configurable rather
   than hardcoded.
 - **FR-012**: `consumer-service` MUST be able to consume messages from the configured Kafka topic
@@ -237,7 +241,7 @@ inspecting internal code or state.
   and MUST surface the error condition via observability.
 - **FR-025**: Both services MUST support graceful shutdown: `producer-service` MUST stop issuing
   new messages and `consumer-service` MUST stop consuming and complete acknowledgment of in-flight
-  work before process termination, within a reasonable shutdown window.
+  work before process termination, within 10 seconds of a shutdown signal.
 - **FR-026**: The system MUST NOT implement retry queues, dead-letter topics, schema registries,
   exactly-once delivery, or multiple consumer groups unless a requirement above cannot otherwise be
   satisfied.
@@ -297,6 +301,9 @@ inspecting internal code or state.
 - **SC-010**: The system sustains a configured rate of 10 messages/second, within the tolerance
   defined in SC-004, for at least 5 consecutive minutes without resource exhaustion or lifecycle
   state corruption.
+- **SC-011**: On receiving a shutdown signal, each service stops its respective in-progress work
+  (new message issuance for `producer-service`; consumption and acknowledgment of in-flight work
+  for `consumer-service`) and the process exits within 10 seconds.
 
 ## Assumptions
 
@@ -323,6 +330,13 @@ inspecting internal code or state.
   message in the same run. An idempotent `/startmsg` no-op (already RUNNING) does not begin a new
   run and does not reset the sequence. Message uniqueness across runs and process restarts is still
   guaranteed via the unique message ID, independent of the sequence number.
+- **Accepted rare exception to sequence contiguity**: if a Kafka send acknowledgment times out
+  ambiguously (the broker may have actually received it despite the timeout, per at-least-once
+  semantics), the next production attempt reuses that same sequence number under a new message ID
+  rather than skipping ahead. This can rarely leave two distinct messages sharing one
+  `sequenceNumber` if the "timed-out" send had, in fact, succeeded. This is an accepted tradeoff,
+  not a defect, and is intentionally not closed via retries, a dead-letter mechanism, or an
+  idempotent/exactly-once producer (FR-026) — those are explicitly out of scope for this feature.
 - Both services are assumed to run as independently deployable Spring Boot applications (e.g.,
   separate processes/containers), consistent with the project constitution's service-boundary
   principle.

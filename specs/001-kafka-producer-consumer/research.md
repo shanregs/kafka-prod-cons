@@ -104,18 +104,38 @@ mechanism applying unchanged.
 **Decision**: Serialize the Kafka message value as JSON (UTF-8 encoded string), with the envelope
 fields (`messageId`, `producedAt`, `producerId`, `sequenceNumber`, `payload.content`) as top-level/
 nested JSON fields per `contracts/kafka-message-contract.md`. The Kafka message key is left unset
-(not required by any FR/SC).
+(not required by any FR/SC). Use Spring Kafka's `JacksonJsonSerializer`/`JacksonJsonDeserializer`
+(`org.springframework.kafka.support.serializer`, built on Jackson 3's `tools.jackson.databind`) —
+**not** the classic `JsonSerializer`/`JsonDeserializer`, which are deprecated as of Spring Boot 4.0
+in favor of the Jackson-3-based pair. `JacksonJsonSerializer.ADD_TYPE_INFO_HEADERS` is set to
+`false` on the producer side, and `JacksonJsonDeserializer<>(KafkaMessageEnvelope.class, false)` on
+the consumer side (the trailing `false` = ignore type headers, always target this service's own
+copy of the type) — same reasoning as before: the two services' copies of the envelope type are not
+the same class (constitution Principle IV), so a producer-side type header naming
+`producer-service`'s class would be meaningless to `consumer-service`.
 
-**Rationale**: JSON is human-readable (helps a learning project's debuggability goal), is directly
-supported by Spring Kafka's JSON (de)serializers, requires no schema registry (explicitly excluded,
-FR-026), and is trivially inspectable with standard Kafka console tools during manual verification
-(quickstart.md).
+**Rationale**: JSON is human-readable (helps a learning project's debuggability goal), requires no
+schema registry (explicitly excluded, FR-026), and is trivially inspectable with standard Kafka
+console tools during manual verification (quickstart.md). Using the Jackson-3-based
+`JacksonJsonSerializer`/`JacksonJsonDeserializer` (rather than the deprecated classic pair) also
+means this project needs only `spring-boot-starter-jackson`'s Jackson 3 (`tools.jackson.*`) on the
+classpath — no separate classic Jackson 2.x (`com.fasterxml.jackson.core:jackson-databind`)
+dependency is needed purely for the Kafka message serializers, since both the REST layer and the
+Kafka layer now share the same Jackson major version.
+
+**Correction during implementation**: an earlier version of this decision assumed Jackson would be
+on the classpath transitively via `spring-boot-starter-webmvc`/`spring-boot-starter-kafka`. That is
+not the case in this Spring Boot version — JSON support is its own `spring-boot-starter-jackson`
+starter, added explicitly to both services' `pom.xml` (see `tasks.md` T012/T013 notes).
 
 **Alternatives considered**:
 - *Avro/Protobuf with schema registry*: Rejected outright by FR-026 (no schema registry).
 - *Plain delimited string*: Would satisfy the contract but is harder to extend/validate than a
-  structured JSON object, and Jackson (JSON) is already on the classpath transitively via
-  `spring-boot-starter-webmvc`/`spring-boot-starter-kafka`, so it adds no new dependency.
+  structured JSON object.
+- *Classic `JsonSerializer`/`JsonDeserializer` (Jackson 2, `com.fasterxml.jackson.*`)*: Rejected —
+  deprecated since Spring Boot 4.0 in favor of the Jackson-3-based pair, and using it would have
+  required pulling in a second, classic Jackson 2.x dependency alongside the Jackson 3.x one
+  `spring-boot-starter-jackson` already provides.
 
 ## R5. Observability approach
 

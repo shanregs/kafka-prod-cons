@@ -22,7 +22,7 @@ FR-013). Serialization format: JSON string value (research.md R4). Kafka message
 | `messageId` | string | yes | Unique per message; unique across producer restarts |
 | `producedAt` | string, ISO-8601 timestamp, always UTC | yes | Production time |
 | `producerId` | string | yes | Identifies the producing service/instance |
-| `sequenceNumber` | integer, ≥ 1 | yes | Starts at 1 for the first successfully produced message of a production run, +1 per subsequent successfully produced message in that run; resets at the next STOPPED→RUNNING transition (see data-model.md Sequencing rules) |
+| `sequenceNumber` | integer, ≥ 1 | yes | Starts at 1 for the first successfully produced message of a production run, +1 per subsequent successfully produced message in that run; resets at the next STOPPED→RUNNING transition (see data-model.md Sequencing rules, including the accepted rare-duplicate-on-ack-timeout exception) |
 | `payload.content` | string | yes, non-empty | The application data; the one payload field the consumer validates |
 
 ## Consumer validation rules (FR-013, FR-014)

@@ -65,6 +65,12 @@ The externally observable record contract carried on the Kafka topic (FR-010; se
   stays contiguous (no gaps) within a run.
 - An idempotent `/startmsg` no-op (already RUNNING) does not start a new run and MUST NOT reset the
   sequence.
+- **Accepted rare exception**: if a send's acknowledgment times out ambiguously (the broker may
+  have actually received it despite the timeout), the next attempt reuses that same sequence number
+  under a new `messageId` rather than skipping ahead (see T031). This can rarely leave two distinct
+  messages sharing one `sequenceNumber` if the "timed-out" send had, in fact, succeeded. This is an
+  accepted tradeoff (spec.md Assumptions, Clarifications), not a defect, and is intentionally not
+  closed via retries, a dead-letter mechanism, or an idempotent/exactly-once producer (FR-026).
 
 ## MessagePayload
 

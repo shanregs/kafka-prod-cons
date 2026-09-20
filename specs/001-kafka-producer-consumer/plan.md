@@ -55,7 +55,8 @@ throughput
 under repeated/concurrent calls, and no production task may become active after the lifecycle has
 transitioned to STOPPED (FR-006–FR-008, research.md R2); no direct synchronous coupling between the
 two services (FR-002); no caller authentication on control endpoints (FR-027); graceful shutdown
-for both services (FR-025); single `consumer-service` instance only, no multi-instance/consumer-
+within 10 seconds of a shutdown signal for both services (FR-025, SC-011); single
+`consumer-service` instance only, no multi-instance/consumer-
 group scaling (FR-029); no distributed locks, databases, retry/DLQ infrastructure, schema registry,
 or exactly-once processing (FR-026, constitution Principle VI)
 

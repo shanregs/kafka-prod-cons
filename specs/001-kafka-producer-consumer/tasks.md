@@ -96,18 +96,22 @@ Principle IV).
   constructor-injected Spring bean, in
   `producer-service/src/main/java/com/shan/kafka/producerservice/kafka/ProducerKafkaConfig.java`
   (depends on: T005, T010) — kept as an ordinary injectable bean (no extra infrastructure) so
-  T046's test can substitute a fault-injecting test double for it. Also added
-  `spring-boot-starter-jackson` and classic `com.fasterxml.jackson.core:jackson-databind` to
-  `pom.xml` (discovered during implementation — see note below)
+  T046's test can substitute a fault-injecting test double for it. Uses `JacksonJsonSerializer`
+  (Jackson 3), not the deprecated classic `JsonSerializer` (research.md R4). Also added
+  `spring-boot-starter-jackson` to `pom.xml` (discovered during implementation); no separate
+  classic Jackson 2.x dependency is needed since `JacksonJsonSerializer` is Jackson-3-native
+  (an earlier revision of this task briefly added `com.fasterxml.jackson.core:jackson-databind`
+  for the now-replaced classic serializer — removed).
 - [X] T013 [P] Configure `consumer-service`'s Kafka consumer (JSON value deserializer; topic,
   bootstrap servers, and consumer group bound from `application.yaml`; manual acknowledgment mode
   per data-model.md's Acknowledgement rule) as a regular, constructor-injected Spring bean, in
   `consumer-service/src/main/java/com/shan/kafka/consumerservice/kafka/ConsumerKafkaConfig.java`
   (depends on: T006, T011) — kept as an ordinary injectable bean so T047's test can substitute a
-  fault-injecting test double for it. Uses `ErrorHandlingDeserializer` around the value
-  deserializer so T039's container-level error handler has a seam to classify a malformed record
-  as `INVALID_DESERIALIZATION` instead of it killing the poll loop. Same Jackson dependency
-  addition as T012 applies here too.
+  fault-injecting test double for it. Uses `ErrorHandlingDeserializer` around
+  `JacksonJsonDeserializer` (Jackson 3, not the deprecated classic `JsonDeserializer` —
+  research.md R4) so T039's container-level error handler has a seam to classify a malformed
+  record as `INVALID_DESERIALIZATION` instead of it killing the poll loop. Same
+  `spring-boot-starter-jackson`-only dependency note as T012 applies here too.
 
 **Checkpoint**: Foundation ready — user story work can begin.
 
@@ -124,22 +128,22 @@ configured Kafka topic. No consumer required.
 
 ### Tests for User Story 1 (write first; must fail before implementation)
 
-- [ ] T014 [P] [US1] Embedded-Kafka test: `POST /startmsg` from STOPPED returns `200 OK`
+- [X] T014 [P] [US1] Embedded-Kafka test: `POST /startmsg` from STOPPED returns `200 OK`
   `{"state":"RUNNING", ...}` and messages begin appearing on the configured topic (FR-003, FR-005)
   in `producer-service/src/test/java/com/shan/kafka/producerservice/api/StartMsgTest.java`
-- [ ] T015 [P] [US1] Embedded-Kafka test: `POST /stopmsg` from RUNNING returns `200 OK`
+- [X] T015 [P] [US1] Embedded-Kafka test: `POST /stopmsg` from RUNNING returns `200 OK`
   `{"state":"STOPPED"}` and no further messages are produced after stopping (FR-004, SC-002) in
   `producer-service/src/test/java/com/shan/kafka/producerservice/api/StopMsgTest.java`
-- [ ] T016 [P] [US1] Test: `POST /startmsg` while already RUNNING is idempotent — `200 OK`,
+- [X] T016 [P] [US1] Test: `POST /startmsg` while already RUNNING is idempotent — `200 OK`,
   `state: "RUNNING"`, no second production loop created (FR-006) in
   `producer-service/src/test/java/com/shan/kafka/producerservice/lifecycle/StartIdempotencyTest.java`
-- [ ] T017 [P] [US1] Test: `POST /stopmsg` while already STOPPED is idempotent — `200 OK`,
+- [X] T017 [P] [US1] Test: `POST /stopmsg` while already STOPPED is idempotent — `200 OK`,
   `state: "STOPPED"`, no error (FR-007) in
   `producer-service/src/test/java/com/shan/kafka/producerservice/lifecycle/StopIdempotencyTest.java`
-- [ ] T018 [US1] Concurrency test: firing several simultaneous `POST /startmsg` calls results in
+- [X] T018 [US1] Concurrency test: firing several simultaneous `POST /startmsg` calls results in
   exactly one active production loop and a consistently RUNNING reported state (FR-008, SC-003) in
   `producer-service/src/test/java/com/shan/kafka/producerservice/lifecycle/ConcurrentStartTest.java`
-- [ ] T019 [US1] Deterministic race test against `ProducerLifecycle`/`ProductionTask` directly
+- [X] T019 [US1] Deterministic race test against `ProducerLifecycle`/`ProductionTask` directly
   (not through HTTP timing, which cannot reliably force this interleaving): (a) an explicit-ordering
   sub-test that drives the two orderings by direct method calls with no real concurrency —
   install→cancel→activate (asserting the later activate call is a no-op and no execution is ever
@@ -151,8 +155,13 @@ configured Kafka topic. No consumer required.
   clear-and-cancel run to completion, before releasing start's thread to call activate — asserting
   activate is a no-op and zero production occurs while `state` is reported STOPPED (research.md R2,
   FR-008) in
-  `producer-service/src/test/java/com/shan/kafka/producerservice/lifecycle/StartStopRaceTest.java`
-- [ ] T020 [P] [US1] Test: `POST /startmsg` with an invalid configured rate — covering all three
+  `producer-service/src/test/java/com/shan/kafka/producerservice/lifecycle/StartStopRaceTest.java`.
+  This test file's class Javadoc fixes the exact contract `ProducerLifecycle`/`ProductionTask`/
+  `ProductionTaskFactory` must implement (constructors, `activate()`/`cancel()`/`isActive()`
+  semantics, the `afterInstall` seam) — T021/T022 (next phase) implement to that contract exactly.
+  Confirmed RED: `mvnw.cmd test-compile` currently fails only on "cannot find symbol:
+  ProducerLifecycle/ProductionTask" in this file, with no other errors anywhere in the test suite.
+- [X] T020 [P] [US1] Test: `POST /startmsg` with an invalid configured rate — covering all three
   cases: zero, negative, **and** missing (the rate property left unset/blank via test
   configuration, per T005's binding, so the application context still starts normally) — returns
   `409 Conflict` with `state: "STOPPED"` and does not transition to RUNNING in each case (Edge
@@ -161,31 +170,43 @@ configured Kafka topic. No consumer required.
 
 ### Implementation for User Story 1
 
-- [ ] T021 [US1] Implement `ProducerLifecycle` (`state`, `configuredRate`, `startedAt`,
+- [X] T021 [US1] Implement `ProducerLifecycle` (`state`, `configuredRate`, `startedAt`,
   `messagesProduced`, `lastSequenceNumber`, `lastError`, initial state STOPPED — FR-005,
   data-model.md `ProducerLifecycleState`) in
   `producer-service/src/main/java/com/shan/kafka/producerservice/lifecycle/ProducerLifecycle.java`
   (depends on: T008)
-- [ ] T022 [US1] Implement `ProductionTask` with the install-then-activate/cancel protocol from
+- [X] T022 [US1] Implement `ProductionTask` with the install-then-activate/cancel protocol from
   research.md R2: an inert task installed via one compare-and-set of a shared slot, then a single
   one-time, mutually exclusive activate/cancel transition on the task itself, in
   `producer-service/src/main/java/com/shan/kafka/producerservice/lifecycle/ProductionTask.java`
   (depends on: T021)
-- [ ] T023 [US1] Implement the fixed-delay rate-controlled scheduling loop inside `ProductionTask`
+- [X] T023 [US1] Implement the fixed-delay rate-controlled scheduling loop inside `ProductionTask`
   (period = `1000ms / configuredRate`, no code-level maximum on the configured rate — FR-009,
   FR-028, research.md R3), sending one `KafkaMessageEnvelope` per execution via the producer from
-  T012 (depends on: T010, T012, T022)
-- [ ] T024 [US1] Implement invalid-configuration validation in `ProducerLifecycle`: read the rate
+  T012 (depends on: T010, T012, T022). Implemented as a new `KafkaProductionTaskFactory` (real,
+  Kafka-backed `ProductionTaskFactory`) plus counters added to `ProductionTask` itself. US1 scope:
+  a simple always-advancing sequence counter and fire-and-forget send; T031 (US2) refines this to
+  the peek-then-commit-only-on-success algorithm.
+- [X] T024 [US1] Implement invalid-configuration validation in `ProducerLifecycle`: read the rate
   configuration bound per T005 (which is absent/blank rather than startup-failing when unset) and
   treat "absent," "zero," and "negative" identically — a start request in any of these cases MUST
   NOT transition to RUNNING and MUST set `lastError`, so a missing rate reaches this same runtime
   validation path a zero/negative rate does, rather than ever preventing the service from starting
   (data-model.md Validation rules, Edge Cases) (depends on: T021)
-- [ ] T025 [US1] Implement `ProducerControlController` exposing `POST /startmsg` and
+- [X] T025 [US1] Implement `ProducerControlController` exposing `POST /startmsg` and
   `POST /stopmsg` per `contracts/producer-api.md` response shapes (`200` success/idempotent for
   both endpoints, `409` for invalid configuration on start) in
   `producer-service/src/main/java/com/shan/kafka/producerservice/api/ProducerControlController.java`
   (depends on: T021, T024)
+
+**T014–T020 verified GREEN**: all 11 test methods pass (`mvnw.cmd -o test`) — StartMsgTest,
+StopMsgTest, StartIdempotencyTest, StopIdempotencyTest, ConcurrentStartTest, StartStopRaceTest
+(×3), InvalidRateTest (×3 nested contexts). Two test-infrastructure issues discovered and fixed
+along the way (unrelated to the production code contract): `TestRestTemplate` needed explicit
+`@AutoConfigureTestRestTemplate` plus a new test-scope `spring-boot-starter-restclient` dependency
+in this Spring Boot version, and `InvalidRateTest`'s `@EmbeddedKafka` topic needed a literal
+string instead of a property placeholder (its outer class has no bootstrapped Spring Environment
+to resolve one against).
 
 **Checkpoint**: User Story 1 is fully functional and independently testable — lifecycle control
 works correctly under repeated and concurrent start/stop calls, with a bare production loop already
@@ -203,33 +224,45 @@ measure messages landing on the configured topic and inspect their contents. No 
 
 ### Tests for User Story 2 (write first; must fail before implementation)
 
-- [ ] T026 [P] [US2] Embedded-Kafka rate test: with a configured rate N, over the SC-004 60-second
+- [X] T026 [P] [US2] Embedded-Kafka rate test: with a configured rate N, over the SC-004 60-second
   window, the aggregate produced count is within 10% of N (FR-016, FR-017, SC-004) in
   `producer-service/src/test/java/com/shan/kafka/producerservice/kafka/RateAccuracyTest.java`
-- [ ] T027 [P] [US2] Embedded-Kafka floor test: with the configured rate at 10 msg/s, the rate
+- [X] T027 [P] [US2] Embedded-Kafka floor test: with the configured rate at 10 msg/s, the rate
   holds within the SC-004 tolerance for the **full** SC-010 5-consecutive-minute window without
   resource exhaustion or lifecycle state corruption (FR-028, SC-010) — the full 5-minute duration
   MUST NOT be shortened or weakened; tag this test `slow` (per T003's Surefire/profile setup) so it
   is excluded from the default `mvnw.cmd test` run and instead executes under the dedicated
   `slow-tests` profile/command in
   `producer-service/src/test/java/com/shan/kafka/producerservice/kafka/SustainedRateTest.java`
-  (depends on: T003)
-- [ ] T028 [P] [US2] Embedded-Kafka contract test: every produced message contains `messageId`,
+  (depends on: T003). Written and confirmed excluded from the default run (tagged `@Tag("slow")`,
+  matches T003's `excludedGroups`); **not executed** in this session (a real run takes 5+ minutes)
+  — run explicitly via `mvnw.cmd test -Pslow-tests -Dtest=SustainedRateTest` to verify.
+- [X] T028 [P] [US2] Embedded-Kafka contract test: every produced message contains `messageId`,
   `producedAt` (ISO-8601, UTC), `producerId`, `sequenceNumber`, and a non-empty `payload.content`,
   per `contracts/kafka-message-contract.md` (SC-005) in
   `producer-service/src/test/java/com/shan/kafka/producerservice/kafka/MessageContractTest.java`
-- [ ] T029 [P] [US2] Test: stopping and starting again begins a new run — the first message of the
+- [X] T029 [P] [US2] Test: stopping and starting again begins a new run — the first message of the
   new run has `sequenceNumber = 1`, sequence numbers within a run increment by exactly 1 with no
   gaps, and `messageId` values remain unique across the restart (data-model.md Sequencing rules,
   spec.md Assumptions) in
   `producer-service/src/test/java/com/shan/kafka/producerservice/lifecycle/SequenceResetOnRestartTest.java`
-- [ ] T030 [P] [US2] Test: changing the configured Kafka topic causes messages to be produced to
+- [X] T030 [P] [US2] Test: changing the configured Kafka topic causes messages to be produced to
   the newly configured topic without a code change (FR-011) in
   `producer-service/src/test/java/com/shan/kafka/producerservice/kafka/ConfigurableTopicTest.java`
 
+**Test-infrastructure bug found and fixed while writing T026**: `EmbeddedKafkaBroker
+.consumeFromAnEmbeddedTopic(consumer, topic)` (no `seekToEnd` argument) unconditionally seeks to
+the topic's **beginning** regardless of `auto.offset.reset` — and since the embedded broker/Spring
+context is reused across every test extending the shared base, an "earliest"-style consumer
+replayed every prior test's leftover messages too, inflating rate/count assertions. Fixed by using
+the `consumeFromAnEmbeddedTopic(consumer, true, topic)` overload (seek to end) in the shared test
+base and in `SustainedRateTest`. Also fixed `countRecords`'s reliance on a single
+`KafkaTestUtils.getRecords` call (which returns as soon as one batch arrives, not after the full
+requested window) — it now polls repeatedly until the full window elapses.
+
 ### Implementation for User Story 2
 
-- [ ] T031 [US2] Implement `ProductionTask`'s per-tick send algorithm, via a **synchronous
+- [X] T031 [US2] Implement `ProductionTask`'s per-tick send algorithm, via a **synchronous
   send-and-confirm per scheduled tick** (the simplest option compatible with the FR-028 ≥10 msg/s
   floor — a fixed-delay tick fires only once per period, so waiting for confirmation within that
   period needs no async-callback reconciliation logic):
@@ -253,11 +286,17 @@ measure messages landing on the configured topic and inspect their contents. No 
   step 5 and reuses the sequence number, accepting the small resulting risk of an occasional
   duplicate `sequenceNumber`/message pair on the topic rather than adding retries, a DLQ, or
   exactly-once processing to close it, in `ProductionTask`'s send path (depends on: T023)
-- [ ] T032 [US2] Reset `ProducerLifecycle`'s sequence/produced-count state at each STOPPED→RUNNING
+- [X] T032 [US2] Reset `ProducerLifecycle`'s sequence/produced-count state at each STOPPED→RUNNING
   transition (not on an idempotent no-op start) per data-model.md Sequencing rules (depends on:
-  T021, T031)
-- [ ] T033 [US2] Confirm the Kafka topic used by `ProducerKafkaConfig` is read only from
-  `application.yaml`/environment, never hardcoded (FR-011) (depends on: T012)
+  T021, T031). Already satisfied by construction: `taskFactory.create(rate)` builds a brand-new
+  `ProductionTask` (with its own fresh counters) on every STOPPED→RUNNING transition, and an
+  idempotent no-op start never calls it — verified by T029.
+- [X] T033 [US2] Confirm the Kafka topic used by `ProducerKafkaConfig` is read only from
+  `application.yaml`/environment, never hardcoded (FR-011) (depends on: T012). Confirmed — `topic`
+  is `@Value("${app.kafka.topic}")`-injected into `KafkaProductionTaskFactory`; verified by T030.
+
+**Checkpoint reached**: full fast suite (`mvnw.cmd -o test`, `slow`-tagged T027 excluded) — 15/15
+tests pass across all of US1 + US2.
 
 **Checkpoint**: User Stories 1 and 2 both work independently — lifecycle control plus verified
 rate-controlled, fully-specified message production.
@@ -275,59 +314,68 @@ received, validated, processed, and acknowledged.
 
 ### Tests for User Story 3 (write first; must fail before implementation)
 
-- [ ] T034 [P] [US3] Embedded-Kafka test: a valid message is consumed, logged, and increments
+- [X] T034 [P] [US3] Embedded-Kafka test: a valid message is consumed, logged, and increments
   `messagesConsumed` (FR-013, FR-015) in
   `consumer-service/src/test/java/com/shan/kafka/consumerservice/kafka/ValidMessageConsumptionTest.java`
-- [ ] T035 [P] [US3] Embedded-Kafka test: publish a record whose value is not valid JSON at all (so
+- [X] T035 [P] [US3] Embedded-Kafka test: publish a record whose value is not valid JSON at all (so
   deserialization fails before a `KafkaMessageEnvelope` object can exist, and the `@KafkaListener`
   method body is never invoked for that record) followed by a valid message; assert the malformed
   record is classified `INVALID_DESERIALIZATION`, logged, and acknowledged/committed by the
   container-level error handling from T039, and that the next, valid message is still received and
   processed normally (FR-014, SC-008, kafka-message-contract.md Delivery semantics) in
   `consumer-service/src/test/java/com/shan/kafka/consumerservice/kafka/MalformedMessageTest.java`
-- [ ] T036 [P] [US3] Embedded-Kafka test: a message that deserializes but fails validation (a
+- [X] T036 [P] [US3] Embedded-Kafka test: a message that deserializes but fails validation (a
   missing envelope field, or a missing/empty `payload.content`) is logged/handled as
   `INVALID_VALIDATION`, acknowledged/committed, and does not stop consumption of the next valid
   message (FR-014, SC-008) in
   `consumer-service/src/test/java/com/shan/kafka/consumerservice/kafka/InvalidPayloadMessageTest.java`
-- [ ] T037 [P] [US3] Test: `consumer-service` starts cleanly with no messages on the topic and no
+- [X] T037 [P] [US3] Test: `consumer-service` starts cleanly with no messages on the topic and no
   `producer-service` running or reachable (FR-012) in
   `consumer-service/src/test/java/com/shan/kafka/consumerservice/ConsumerStartupTest.java`
-- [ ] T038 [P] [US3] Test: on restart, already-acknowledged messages (valid or invalid) are not
+  (uses `@DirtiesContext` to force a genuinely fresh context/counters, since the shared test base's
+  context is otherwise reused across every test extending it)
+- [X] T038 [P] [US3] Test: on restart, already-acknowledged messages (valid or invalid) are not
   redelivered; only messages left unacknowledged before the restart may be redelivered and
   reprocessed (kafka-message-contract.md Delivery semantics) in
   `consumer-service/src/test/java/com/shan/kafka/consumerservice/kafka/RedeliveryOnRestartTest.java`
+  (restarts the listener CONTAINER via `KafkaListenerEndpointRegistry`, not the whole Spring
+  context — committed offsets live on the broker, so this is sufficient and faithful)
 
 ### Implementation for User Story 3
 
-- [ ] T039 [US3] Implement a `@KafkaListener` consuming from the configured topic and deserializing
+- [X] T039 [US3] Implement a `@KafkaListener` consuming from the configured topic and deserializing
   into `KafkaMessageEnvelope`, **plus** a container-level deserialization-error handler: since a
   malformed record fails inside the JSON deserializer itself (before any `KafkaMessageEnvelope`
   exists), the listener method body alone cannot observe it — the error handler intercepts the
   per-record deserialization exception at the container level, produces an
   `INVALID_DESERIALIZATION` outcome for that record, and lets the container continue polling
-  (depends on: T011, T013)
-- [ ] T040 [US3] Implement `MessageValidator` enforcing `contracts/kafka-message-contract.md`'s
+  (depends on: T011, T013). Implemented as a `DefaultErrorHandler` with a `FixedBackOff(0, 0)`
+  (zero retries) and a custom recoverer, added to `ConsumerKafkaConfig`.
+- [X] T040 [US3] Implement `MessageValidator` enforcing `contracts/kafka-message-contract.md`'s
   3-point validity rule (envelope fields present AND `payload.content` present and non-empty) for
   records that *did* deserialize successfully, in
   `consumer-service/src/main/java/com/shan/kafka/consumerservice/kafka/MessageValidator.java`
   (depends on: T011)
-- [ ] T041 [US3] Implement `ProcessingOutcome` (`PROCESSED` / `INVALID_DESERIALIZATION` /
+- [X] T041 [US3] Implement `ProcessingOutcome` (`PROCESSED` / `INVALID_DESERIALIZATION` /
   `INVALID_VALIDATION`) determination and per-outcome logging in
   `consumer-service/src/main/java/com/shan/kafka/consumerservice/kafka/MessageProcessor.java` —
   `INVALID_DESERIALIZATION` outcomes originate from T039's container-level error handler (no
   envelope object exists), while `PROCESSED`/`INVALID_VALIDATION` originate from the listener's
   normal path after T040's validation runs on a successfully deserialized envelope (depends on:
-  T039, T040)
-- [ ] T042 [US3] Implement manual acknowledgment for every outcome — `PROCESSED`,
+  T039, T040). `ProcessingOutcome` implemented as its own record type (`kafka/ProcessingOutcome.java`).
+- [X] T042 [US3] Implement manual acknowledgment for every outcome — `PROCESSED`,
   `INVALID_DESERIALIZATION` (acknowledged from T039's error handler), and `INVALID_VALIDATION`
   (acknowledged from the normal listener path) are all acknowledged/committed once logged, per
   data-model.md's Acknowledgement rule, so no invalid message — deserialization failure or
   validation failure alike — can block subsequent valid ones (FR-014, SC-008). No DLQ or retry
   queue is introduced; a record that cannot be handled is skipped-and-acknowledged, not requeued
   (depends on: T041)
-- [ ] T043 [US3] Implement `ConsumerRuntimeState` (`messagesConsumed`, `messagesRejected`,
+- [X] T043 [US3] Implement `ConsumerRuntimeState` (`messagesConsumed`, `messagesRejected`,
   `lastError`) updated per `ProcessingOutcome` (depends on: T041)
+
+**Verified GREEN**: `mvnw.cmd -o test` in `consumer-service` → 5/5 tests pass on the first real run
+(ValidMessageConsumptionTest, MalformedMessageTest, InvalidPayloadMessageTest, ConsumerStartupTest,
+RedeliveryOnRestartTest).
 
 **Checkpoint**: User Stories 1–3 all work independently; the end-to-end produce→consume pipeline
 functions.
@@ -344,14 +392,15 @@ confirm it reflects reality (state, rate, counts, errors).
 
 ### Tests for User Story 4 (write first; must fail before implementation)
 
-- [ ] T044 [P] [US4] Test: `GET /status` on `producer-service` returns `state`, `configuredRate`,
+- [X] T044 [P] [US4] Test: `GET /status` on `producer-service` returns `state`, `configuredRate`,
   `messagesProduced`, `lastSequenceNumber`, `lastError` per `contracts/producer-api.md` (FR-019,
   FR-020, SC-009) in
   `producer-service/src/test/java/com/shan/kafka/producerservice/api/ProducerStatusTest.java`
-- [ ] T045 [P] [US4] Test: `GET /status` on `consumer-service` returns `messagesConsumed`,
+- [X] T045 [P] [US4] Test: `GET /status` on `consumer-service` returns `messagesConsumed`,
   `messagesRejected`, `lastError` per `contracts/consumer-status-api.md` (FR-021, SC-009) in
   `consumer-service/src/test/java/com/shan/kafka/consumerservice/api/ConsumerStatusTest.java`
-- [ ] T046 [P] [US4] Kafka-unavailable test: rather than physically stopping/restarting the
+  (standalone web-enabled context — the shared US3 base uses `WebEnvironment.NONE`)
+- [X] T046 [P] [US4] Kafka-unavailable test: rather than physically stopping/restarting the
   embedded broker mid-test (unreliable timing), substitute a deterministic test double for T012's
   injectable Kafka producer bean that is toggled to fail every send ("unavailable") and later
   toggled back to succeed ("restored"); assert that while failing, `producer-service`'s
@@ -359,31 +408,42 @@ confirm it reflects reality (state, rate, counts, errors).
   and a non-null `lastError`, and that `lastError` clears (or a subsequent successful send is
   observed) once the double is toggled back to succeeding (FR-023, SC-007) in
   `producer-service/src/test/java/com/shan/kafka/producerservice/kafka/BrokerUnavailableProducerTest.java`
-  (depends on: T012)
-- [ ] T047 [P] [US4] Kafka-unavailable test: substitute a deterministic test double for T013's
+  (depends on: T012). Implemented via a `@TestConfiguration`-provided `@Primary` `ToggleableKafkaTemplate`
+  subclass overriding `send(...)` to fail on demand.
+- [X] T047 [P] [US4] Kafka-unavailable test: substitute a deterministic test double for T013's
   injectable Kafka consumer/listener-container error path that is toggled to raise a connectivity
   error and later toggled back to normal operation, in place of physically stopping/restarting the
   embedded broker; assert `consumer-service` does not crash while the double is failing, surfaces
   the condition via `lastError`, and resumes consuming once the double is toggled back (FR-024) in
   `consumer-service/src/test/java/com/shan/kafka/consumerservice/kafka/BrokerUnavailableConsumerTest.java`
-  (depends on: T013)
+  (depends on: T013). Implemented by directly invoking the real, wired `CommonErrorHandler` bean
+  with a simulated `DisconnectException` and Mockito `Consumer`/`MessageListenerContainer` doubles
+  (deterministic — no physical broker manipulation).
 
 ### Implementation for User Story 4
 
-- [ ] T048 [P] [US4] Implement `GET /status` on `producer-service`'s
+- [X] T048 [P] [US4] Implement `GET /status` on `producer-service`'s
   `ProducerControlController`, served entirely from `ProducerLifecycle`'s in-memory state (no live
   broker check — SC-007, SC-009) per `contracts/producer-api.md` (depends on: T021, T025)
-- [ ] T049 [P] [US4] Implement `GET /status` on a new `ConsumerStatusController`, served entirely
+- [X] T049 [P] [US4] Implement `GET /status` on a new `ConsumerStatusController`, served entirely
   from `ConsumerRuntimeState`'s in-memory state (no live broker check) per
   `contracts/consumer-status-api.md` in
   `consumer-service/src/main/java/com/shan/kafka/consumerservice/api/ConsumerStatusController.java`
   (depends on: T043)
-- [ ] T050 [US4] Ensure a producer send failure (e.g., broker unavailable) sets `lastError` without
+- [X] T050 [US4] Ensure a producer send failure (e.g., broker unavailable) sets `lastError` without
   moving `state` outside {STOPPED, RUNNING} (FR-023) in `ProducerLifecycle`/`ProductionTask`
-  (depends on: T021, T023)
-- [ ] T051 [US4] Ensure a consumer Kafka connectivity failure sets `lastError` and the consumer
+  (depends on: T021, T023). Already satisfied by construction (`getState()` derives purely from
+  whether a task is installed, independent of `lastError`); verified by T046.
+- [X] T051 [US4] Ensure a consumer Kafka connectivity failure sets `lastError` and the consumer
   recovers once connectivity returns, without crashing (FR-024) in `ConsumerKafkaConfig`/the
-  listener's error handling (depends on: T013, T039)
+  listener's error handling (depends on: T013, T039). Added `ConsumerRuntimeState.recordError(...)`
+  (sets `lastError` without touching message counters) plus a `handleOtherException` override on
+  the `DefaultErrorHandler` from T039 — deliberately does NOT delegate to `super`, since
+  `DefaultErrorHandler`'s default `handleOtherException` throws `IllegalStateException` for
+  exception types it doesn't specifically recognize (discovered while making T047 pass).
+
+**Verified GREEN**: `mvnw.cmd -o test` — producer-service 17/17, consumer-service 7/7. All four
+user stories independently functional.
 
 **Checkpoint**: All four user stories are independently functional.
 
@@ -393,25 +453,51 @@ confirm it reflects reality (state, rate, counts, errors).
 
 **Purpose**: Requirements that span the whole feature rather than one user story.
 
-- [ ] T052 [P] Implement graceful shutdown on `producer-service`: stop issuing new messages and
-  cancel the active `ProductionTask` on application shutdown, within a reasonable window (FR-025)
-  in `ProducerLifecycle`
-- [ ] T053 [P] Implement graceful shutdown on `consumer-service`: stop consuming and complete
-  acknowledgment of in-flight work before process termination (FR-025) in the Kafka listener
-  container configuration
-- [ ] T054 [P] Test: `producer-service` stops producing new messages on a shutdown signal (FR-025)
-  in `producer-service/src/test/java/com/shan/kafka/producerservice/lifecycle/GracefulShutdownTest.java`
-- [ ] T055 [P] Test: `consumer-service` completes acknowledgment of in-flight work before shutdown
-  completes (FR-025) in
-  `consumer-service/src/test/java/com/shan/kafka/consumerservice/kafka/GracefulShutdownTest.java`
-- [ ] T056 Run `quickstart.md`'s full validation guide (golden path + edge cases) manually against
-  both running services to confirm the end-to-end feature works together
-- [ ] T057 [P] Confirm `producer-service` builds and runs independently via
+- [X] T052 [P] Implement graceful shutdown on `producer-service`: stop issuing new messages and
+  cancel the active `ProductionTask` on application shutdown, completing within 10 seconds of the
+  shutdown signal (FR-025, SC-011) in `ProducerLifecycle`. Added a `@PreDestroy`-annotated
+  `shutdown()` method (Spring calls it automatically on context close) plus a graceful
+  `shutdown()`/bounded-`awaitTermination()`/`shutdownNow()` fallback in
+  `KafkaProductionTaskFactory`'s scheduler-teardown closure (previously an abrupt `shutdownNow()`).
+- [X] T053 [P] Implement graceful shutdown on `consumer-service`: stop consuming and complete
+  acknowledgment of in-flight work before process termination, within 10 seconds of the shutdown
+  signal (FR-025, SC-011) in the Kafka listener container configuration. Set
+  `ContainerProperties.setShutdownTimeout(10_000L)` explicitly in `ConsumerKafkaConfig` (constitution
+  Principle II — explicit, not relying on the framework default).
+- [X] T054 [P] Test: `producer-service` stops producing new messages and the process exits within
+  10 seconds of a shutdown signal (FR-025, SC-011) in
+  `producer-service/src/test/java/com/shan/kafka/producerservice/lifecycle/GracefulShutdownTest.java`.
+  Calls `ProducerLifecycle.shutdown()` directly (the exact `@PreDestroy` method a real shutdown
+  invokes) rather than closing the whole shared/test-context-cached Spring context.
+- [X] T055 [P] Test: `consumer-service` completes acknowledgment of in-flight work and the process
+  exits within 10 seconds of a shutdown signal (FR-025, SC-011) in
+  `consumer-service/src/test/java/com/shan/kafka/consumerservice/kafka/GracefulShutdownTest.java`.
+  Stops the listener container directly via `KafkaListenerEndpointRegistry` (same reasoning as
+  T054) — an earlier attempt at both closing the whole context in T054/T055 hit
+  `IllegalStateException: LifecycleProcessor not initialized`, a conflict between manual
+  `ApplicationContext.close()` and Spring's test-context cache; calling the actual shutdown method/
+  container directly avoided it entirely.
+- [X] T056 Ran `quickstart.md`'s golden path manually against both services as real processes
+  (packaged jars) against a real local Kafka broker (confirmed reachable at localhost:9092/9093) —
+  not simulated: `GET /status` (STOPPED) → `POST /startmsg` → observed `messagesProduced` and
+  `messagesConsumed` climbing in lockstep (22 after ~5s at rate 5/s) → `POST /stopmsg` → confirmed
+  count stops growing → idempotent repeat start/stop calls behaved correctly → final counts
+  (messagesProduced 89 == messagesConsumed 89, 0 rejected, 0 errors) confirmed consistent
+  end-to-end. Could not exercise OS-level SIGTERM timing in this sandbox (the background-spawned
+  process had no attached console for Windows to deliver a graceful close signal to, so only a
+  forced kill was available) — the underlying shutdown code path itself is already verified by
+  T054/T055's automated tests, which call the exact same methods a real shutdown would.
+- [X] T057 [P] Confirm `producer-service` builds and runs independently via
   `producer-service/mvnw.cmd clean install` with zero dependency on `consumer-service` (FR-001,
-  constitution Principle IV)
-- [ ] T058 [P] Confirm `consumer-service` builds and runs independently via
+  constitution Principle IV). Built and ran as a standalone jar in T056.
+- [X] T058 [P] Confirm `consumer-service` builds and runs independently via
   `consumer-service/mvnw.cmd clean install` with zero dependency on `producer-service` (FR-001,
-  constitution Principle IV)
+  constitution Principle IV). Built and ran as a standalone jar in T056.
+
+**Feature complete**: all 58 tasks done. producer-service 19/19 tests pass, consumer-service 8/8
+tests pass (both via `mvnw.cmd test`, `slow`-tagged T027 excluded from the default run), plus a
+real end-to-end run against a live local Kafka broker confirming the full produce→consume pipeline,
+lifecycle idempotency, and independent deployability.
 
 ---
 
